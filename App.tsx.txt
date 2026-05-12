@@ -1,0 +1,1348 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useRef } from 'react';
+import html2pdf from 'html2pdf.js';
+import { GoogleGenAI } from "@google/genai";
+import { 
+  BookOpen, 
+  Send, 
+  Download, 
+  Printer, 
+  Sparkles, 
+  User, 
+  Calendar, 
+  GraduationCap, 
+  Target,
+  Image as ImageIcon,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  ChevronRight,
+  School
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+
+// Initialize AI outside component for stability
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+
+// KBC Data Context extracted from the provided Panduan
+const KBC_CONTEXT = `
+Tabel 1. Materi Pokok Kurikulum Berbasis Cinta (KBC)
+
+1. Cinta Allah Swt. dan Rasul-Nya:
+- Keimanan dan ketakwaan kepada Allah Swt.
+- Mengenal Asmaul Husna (ar-Rahman, ar-Rahim, al-Adl, al-Latif, ar-Rauf).
+- Ibadah (salat, doa, zikir, membaca Al-Qur'an khusyu).
+- Mensyukuri nikmat Allah dalam perilaku sehari-hari.
+- Sirah Nabawiyah (Sejarah Rasulullah membangun kasih sayang).
+- Mempraktikkan sifat Rasulullah (cerdas, jujur, amanah, lemah lembut, dermawan).
+- Mempelajari hadis-hadis cinta dan akhlak mulia.
+
+2. Cinta Ilmu:
+- Pilar sukses mencari ilmu: niat, tekun, tawakal, wara’, yakin, dan syukur.
+- Alat transformasi sosial dan global.
+- Literasi sebagai sumber ilmu.
+- Pembelajar sepanjang hayat.
+- Adab kepada guru.
+- Pemanfaatan teknologi.
+- Inovasi dan penalaran kritis.
+- Ilmu penuntun keseimbangan hidup.
+- Ilmu dalam konteks keberagaman.
+- Sumber ilmu (qauliyah dan kauniyah).
+
+3. Cinta Lingkungan:
+- Islam sebagai rahmatan lil ‘alamin.
+- Adab pada alam dan lingkungan.
+- Menghindari fasad (merusak lingkungan, QS. Al-A’raf: 56, Ar-Rum: 41).
+- Praktik menjaga kebersihan (thaharah) dan hemat energi (larangan ishraf).
+
+4. Cinta Diri dan Sesama Manusia:
+- Akhlak terpuji diri sendiri (tawakal, ikhtiar, syukur, sabar, qanaah, kreatif, produktif, inovatif).
+- Menghindari akhlak tercela (ananiah, putus asa, ghadab, tamak).
+- Menjaga kebersihan, kesehatan, keselamatan diri.
+- Ukhuwah Islamiyah & Insaniyah.
+- Adab kepada orangtua, saudara, tetangga, teman, sesama umat.
+- Akhlak terpuji sesama: ta’awun (tolong menolong), tafahum (memahami), tasamuh (toleransi), tawadhu, husnuzhan.
+- Akhlak tercela sesama: ghibah, fitnah, namimah, su’uzhan.
+
+5. Cinta Tanah Air:
+- Ukhuwah wathaniyah (persaudaraan kebangsaan).
+- Hubbul Wathan minal Iman.
+- Menghormati perbedaan (suku, budaya, agama).
+- Menjaga kedaulatan dan keamanan negara, kontribusi kemajuan bangsa.
+
+Prinsip Langkah Pembelajaran KBC:
+- (Prinsip: Bermakna)
+- (Prinsip: Menggembirakan)
+- (Prinsip: Berkesadaran)
+`;
+
+const stripLabel = (text: string) => {
+  return text.replace(/^[a-eA-E][.\)]\s*/, '').trim();
+};
+
+export default function App() {
+  const [loading, setLoading] = useState(false);
+  const [formData, setFormData] = useState({
+    teacherName: '',
+    teacherNip: '199011032025052003',
+    principalName: 'Desniwati, S.Pd.I, M.Pd',
+    principalNip: '196612222005012006',
+    subject: 'Bahasa Inggris',
+    topic: '',
+    phase: 'Fase C - Kelas 6',
+    modelType: 'Auto',
+    model: 'Discovery Learning',
+    duration: '2 x 35 Menit',
+    sessions: '1x pertemuan',
+    genMode: 'RPM', // RPM or SOAL
+    assessmentType: 'Asesmen Sumatif Harian',
+    stimulusMode: ['Auto'],
+    topics: ['']
+  });
+  const [rpp, setRpp] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
+  const rppRef = useRef<HTMLDivElement>(null);
+
+  const calculateQuizConfig = (phase: string, type: string) => {
+    const isGrade12 = phase.includes('Kelas 1') || phase.includes('Kelas 2');
+    const isGrade34 = phase.includes('Kelas 3') || phase.includes('Kelas 4');
+    const isGrade56 = phase.includes('Kelas 5') || phase.includes('Kelas 6');
+    
+    let config = { pg: 10, complex: 0, isian: 5, essay: 0, lots: 100, mots: 0, hots: 0 };
+
+    if (type === 'Asesmen Sumatif Harian') {
+       if (isGrade56) config = { ...config, essay: 5, lots: 30, mots: 40, hots: 30 };
+       else if (isGrade34) config = { ...config, lots: 40, mots: 60, hots: 0 };
+    } else { // ASTS or ASAS
+       if (isGrade12) config = { ...config, pg: 25, isian: 5 };
+       else if (isGrade34) config = { ...config, pg: 25, isian: 5, essay: 5, lots: 40, mots: 60, hots: 0 };
+       else if (isGrade56) {
+          const pgCount = phase.includes('Kelas 6') ? 10 : 25;
+          config = { ...config, pg: pgCount, complex: 5, isian: 5, essay: 5, lots: 30, mots: 40, hots: 30 };
+       }
+    }
+    return config;
+  };
+
+  const generateRPP = async () => {
+    const validTopics = formData.topics.filter(t => t.trim() !== "");
+    if (!formData.teacherName || validTopics.length === 0) {
+      setError("Silakan isi nama guru dan materi pokok.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const isEnglish = formData.subject.toLowerCase().includes('inggris') || formData.subject.toLowerCase().includes('english');
+      const isArabic = formData.subject.toLowerCase().includes('arab');
+      const quizConfig = calculateQuizConfig(formData.phase, formData.assessmentType);
+      
+      const systemInstruction = `
+        You are an expert Indonesian Educational Specialist for MIN 4 Kota Padang.
+        TASK: Generate a professional ${formData.genMode === 'RPM' ? 'Lesson Plan (RPM)' : 'Assessment Sheet (Soal)'} in Kurikulum Merdeka format with KBC (Kurikulum Berbasis Cinta) integration.
+        
+        IMPORTANT: 
+        - If the subject is English, ALL questions and learning content must be in ENGLISH.
+        - If the subject is Arabic (Bahasa Arab), ALL Arabic content (questions, options, vocabulary) MUST use ARABIC SCRIPT (Hija'iyah), NEVER Latin transliteration.
+        - EXCEPTION for 'Pelafalan' (Pronunciation) mode in Arabic: The stimulus should be the Arabic text (Arabic script), the question should ask "Lafaz ini [lafaz] dibaca...", and the options should be the correct and incorrect pronunciations in LATIN script (e.g., a. baiti b. baitun c. baituka d. baituki).
+        - FOR 'Pernyataan' (Statements) mode: The stimulus 'konten' should be a numbered list of statements (e.g. "1. Statement A\n2. Statement B..."). The question should then refer to these numbers (e.g. "Manakah dari pernyataan di atas yang merupakan...").
+        Current Subject is ${formData.subject}. ${isEnglish ? 'Generate all content in English.' : isArabic ? 'Generate Arabic content using Arabic script.' : 'Generate content in Indonesian.'}
+
+        KBC CONTEXT:
+        ${KBC_CONTEXT}
+
+        RULES:
+        1. VALID JSON ONLY. No markdown wrappers.
+        2. Proportional distribution of topics if multiple are provided.
+        3. ${isEnglish ? 'Strictly use ENGLISH for all academic content.' : isArabic ? 'Strictly use ARABIC SCRIPT for Arabic content items.' : 'Use professional Indonesian.'}
+        4. In SOAL mode, the 'kisiKisi' MUST include entries for all questions in 'bankSoal'.
+        5. The number of objects in the "langkah" array and "asesmen.proses" array MUST match the number of sessions specified (${formData.sessions}).
+        6. For multiple choice options (opsi), DO NOT include labels like "A.", "B.", or "a)", "b)". Just provide the text.
+      `;
+
+      const prompt = `
+        Generate content based on these inputs:
+        - Mode: ${formData.genMode}
+        - Guru: ${formData.teacherName} (NIP: ${formData.teacherNip})
+        - Kepala Madrasah: ${formData.principalName} (NIP: ${formData.principalNip})
+        - Subject: ${formData.subject}
+        - Topics: ${validTopics.join(', ')}
+        - Phase/Grade: ${formData.phase}
+        - Duration: ${formData.duration}
+        - Sessions: ${formData.sessions}
+        ${formData.genMode === 'RPM' ? `- Model: ${formData.modelType === 'Auto' ? 'Choose most relevant (Discovery/PjBL/etc)' : formData.model}` : `- Assessment Type: ${formData.assessmentType}`}
+        - Stimulus Types: ${formData.stimulusMode.join(', ')}
+
+        ${formData.genMode === 'RPM' ? `
+        RPM STRUCTURE (REQUIRED JSON KEYS):
+        - identitas: { sekolah, guru, mapel, fase, materi, alokasi, kepalaMadrasah, nipKepala, nipGuru }
+        - identifikasi: { murid: { kesiapan, awal, minat, latar }, materiPelajaran: { faktual, konseptual, prosedural, metakognitif }, profilLulusan: { dpl3, dpl5, dpl8 } }
+        - kbc: { tema: { cintaAllah, cintaIlmu, cintaLingkungan, cintaDiri, cintaTanahAir }, materiIntegrasi: string[] }
+        - desain: { cp, lintasDisiplin, tp, iktp, praktikPedagogis, kemitraan, lingkungan, digital }
+        - langkah: [ { pertemuan, awal: { deskripsi, prinsip }, inti: { sintak, steps: [ { title, activity: string[], prinsip? } ] }, penutup: { deskripsi, prinsip } } ]
+        - asesmen: { awal, proses: [ { subjudul, rubrik: [ { aspek, skor3, skor2, skor1 } ] } ], akhir: { soalPG: [ { soal, opsi: string[], kunci } ], teksBaca?: { judul, konten, soal: [ { q } ] }, rubrikProduk: [ { kriteria, skor4, skor3, skor2 } ] } }
+        ` : `
+        SOAL Mode Quota (Ensure these numbers are met):
+        - LOTS: ${quizConfig.lots}% | MOTS: ${quizConfig.mots}% | HOTS: ${quizConfig.hots}%
+        - Pilihan Ganda (MCQ): ${quizConfig.pg}
+        - Pilihan Ganda Kompleks: ${quizConfig.complex}
+        - Isian Singkat: ${quizConfig.isian}
+        - Essay/Uraian: ${quizConfig.essay}
+
+        SOAL STRUCTURE (REQUIRED JSON KEYS):
+        - header: { judul, sekolah, mapel, kelas, waktu, materi }
+        - kisiKisi: [ { no, materi, indikatorSoal, level, bentukSoal, nomorSoal } ]
+        - bankSoal: [ { tipe: "PG"|"PGK"|"Isian"|"Essay", stimulus: { tipe, konten }, pertanyaan, opsi?: string[], kunci, level } ]
+        - IMPORTANT: If stimulus.tipe is "Gambar/Ilustrasi", stimulus.konten MUST be a highly descriptive ENGLISH prompt for generating the image.
+        - prompts: string[] (Visual prompts for AI image generation related to the stimuli)
+        `}
+      `;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3.1-pro-preview",
+        contents: [{ parts: [{ text: prompt }] }],
+        config: {
+          systemInstruction: systemInstruction,
+          responseMimeType: "application/json"
+        }
+      });
+
+      const text = response.text;
+      if (!text) {
+        throw new Error("Empty response from AI");
+      }
+      const result = JSON.parse(text);
+      
+      // Defensive parsing to ensure arrays exist
+      if (result.asesmen && result.asesmen.proses) {
+        if (!Array.isArray(result.asesmen.proses)) {
+          // If it's a single object instead of an array, wrap it
+          if (typeof result.asesmen.proses === 'object' && result.asesmen.proses !== null) {
+             result.asesmen.proses = [result.asesmen.proses];
+          } else {
+             result.asesmen.proses = [];
+          }
+        }
+        
+        // Ensure each element has rubrik array
+        result.asesmen.proses.forEach((p: any) => {
+          if (!Array.isArray(p.rubrik)) p.rubrik = [];
+        });
+      } else if (result.asesmen) {
+        result.asesmen.proses = [];
+      }
+
+      if (result.asesmen && result.asesmen.akhir) {
+        if (!Array.isArray(result.asesmen.akhir.rubrikProduk)) {
+          result.asesmen.akhir.rubrikProduk = [];
+        }
+        if (!Array.isArray(result.asesmen.akhir.soalPG)) {
+          result.asesmen.akhir.soalPG = [];
+        }
+      } else if (result.asesmen) {
+        result.asesmen.akhir = { rubrikProduk: [], soalPG: [] };
+      }
+
+      if (result.langkah) {
+        if (!Array.isArray(result.langkah)) {
+          result.langkah = [result.langkah];
+        }
+      } else {
+        result.langkah = [];
+      }
+
+      setRpp(result);
+    } catch (err: any) {
+      console.error(err);
+      const errorMessage = err?.message || "";
+      if (errorMessage.includes("Rpc failed") || errorMessage.includes("xhr error")) {
+        setError("Terjadi gangguan koneksi ke server AI (RPC Error). Silakan coba lagi dalam beberapa saat.");
+      } else {
+        setError("Gagal menghasilkan RPP. Pastikan koneksi internet stabil.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const handleDownloadPDF = () => {
+    if (!rppRef.current) return;
+    
+    const element = rppRef.current;
+    const opt = {
+      margin: 10,
+      filename: `RPM_KBC_${formData.subject}_${formData.topics.filter(t => t.trim() !== "").join('_')}.pdf`,
+      image: { type: 'jpeg' as const, quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' as const }
+    };
+
+    html2pdf().set(opt).from(element).save();
+  };
+
+  const handleDownloadWord = () => {
+    if (!rppRef.current) return;
+
+    const content = rppRef.current.innerHTML;
+    const header = `
+      <html xmlns:o='urn:schemas-microsoft-com:office:office' 
+            xmlns:w='urn:schemas-microsoft-com:office:word' 
+            xmlns='http://www.w3.org/TR/REC-html40'>
+      <head>
+        <meta charset='utf-8'>
+        <title>RPM KBC Export</title>
+        <style>
+          body { font-family: 'Times New Roman', serif; font-size: 11pt; }
+          table { border-collapse: collapse; width: 100%; border: 1px solid black; }
+          th, td { border: 1px solid black; padding: 5px; }
+          .font-bold { font-weight: bold; }
+          .underline { text-decoration: underline; }
+          .text-center { text-align: center; }
+          .uppercase { text-transform: uppercase; }
+          .italic { font-style: italic; }
+          .indent-8 { text-indent: 30px; }
+          .leading-relaxed { line-height: 1.5; }
+          .mb-8 { margin-bottom: 20px; }
+          .mt-8 { margin-top: 20px; }
+          .bg-slate-50 { background-color: #f8fafc; }
+          .p-1 { padding: 4px; }
+          .p-2 { padding: 8px; }
+          .w-full { width: 100%; }
+          .indent-8 { text-indent: 40px; }
+        </style>
+      </head>
+      <body>
+    `;
+    const footer = "</body></html>";
+    const sourceHTML = header + content + footer;
+    
+    const blob = new Blob(['\ufeff', sourceHTML], {
+      type: 'application/msword'
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `RPM_KBC_${formData.subject}_${formData.topics.filter(t => t.trim() !== "").join('_')}.doc`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  return (
+    <div className="min-h-screen bg-[#FDFCFB] text-slate-900 font-sans selection:bg-emerald-100 p-4 md:p-8">
+      <div className="max-w-5xl mx-auto">
+        {/* Header */}
+        <motion.header 
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex flex-col md:flex-row items-center gap-6 mb-12 border-b border-rose-100 pb-8"
+        >
+          <div className="bg-rose-50 p-4 rounded-3xl">
+            <School className="w-12 h-12 text-rose-600" />
+          </div>
+          <div className="text-center md:text-left">
+            <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-slate-900">
+              AI <span className="text-rose-600">RPM KBC</span> Generator
+            </h1>
+            <p className="text-slate-500 font-medium mt-1 uppercase tracking-widest text-xs">
+              MIN 4 Kota Padang • Kurikulum Merdeka
+            </p>
+          </div>
+        </motion.header>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          {/* Form Side */}
+          <div className="lg:col-span-4 space-y-6">
+            <motion.div 
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-xl shadow-slate-200/40 space-y-5"
+            >
+              <div className="flex items-center gap-2 mb-4">
+                <Sparkles className="w-5 h-5 text-rose-500" />
+                <h2 className="font-bold text-lg">Konfigurasi Panel</h2>
+              </div>
+
+              {/* Mode Toggle */}
+              <div className="flex p-1 bg-slate-50 rounded-2xl border border-slate-100">
+                <button 
+                  onClick={() => setFormData({...formData, genMode: 'RPM'})}
+                  className={`flex-1 py-3 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 ${formData.genMode === 'RPM' ? 'bg-rose-600 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-100'}`}
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                  RPM Generator
+                </button>
+                <button 
+                  onClick={() => setFormData({...formData, genMode: 'SOAL'})}
+                  className={`flex-1 py-3 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 ${formData.genMode === 'SOAL' ? 'bg-rose-600 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-100'}`}
+                >
+                  <Target className="w-3.5 h-3.5" />
+                  Soal Generator
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1 ml-1">Nama Guru</label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                      <input 
+                        type="text" 
+                        placeholder="Contoh: Marila Edison, S.Pd"
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-rose-500 transition-all text-sm outline-none"
+                        value={formData.teacherName}
+                        onChange={(e) => setFormData({...formData, teacherName: e.target.value})}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1 ml-1">NIP Guru</label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                      <input 
+                        type="text" 
+                        placeholder="NIP Guru"
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-rose-500 transition-all text-sm outline-none"
+                        value={formData.teacherNip}
+                        onChange={(e) => setFormData({...formData, teacherNip: e.target.value})}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1 ml-1">Kepala Madrasah</label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                      <input 
+                        type="text" 
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-rose-500 transition-all text-sm outline-none"
+                        value={formData.principalName}
+                        onChange={(e) => setFormData({...formData, principalName: e.target.value})}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1 ml-1">NIP Kepala</label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                      <input 
+                        type="text" 
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-rose-500 transition-all text-sm outline-none"
+                        value={formData.principalNip}
+                        onChange={(e) => setFormData({...formData, principalNip: e.target.value})}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1 ml-1">Mata Pelajaran</label>
+                  <div className="relative">
+                    <BookOpen className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                    <select 
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-rose-500 transition-all text-sm outline-none appearance-none"
+                      value={formData.subject}
+                      onChange={(e) => {
+                        const newSubject = e.target.value;
+                        let newModes = formData.stimulusMode;
+                        if (newSubject !== 'Bahasa Arab') {
+                          newModes = newModes.filter(m => m !== 'Pelafalan');
+                        }
+                        setFormData({...formData, subject: newSubject, stimulusMode: newModes});
+                      }}
+                    >
+                      <option>Bahasa Inggris</option>
+                      <option>Bahasa Arab</option>
+                      <option>Al-Quran Hadist</option>
+                      <option>Matematika</option>
+                      <option>Bahasa Indonesia</option>
+                      <option>Pendidikan Pancasila</option>
+                      <option>IPAS</option>
+                      <option>Seni Rupa</option>
+                      <option>Keminangkabauan</option>
+                      <option>Fiqih</option>
+                      <option>Akidah Akhlak</option>
+                      <option>Sejarah Kebudayaan Islam</option>
+                      <option>Pendidikan Agama Islam</option>
+                      <option>Pendidikan Jasmani Olahraga dan Kesehatan (PJOK)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1 ml-1">MATERI POKOK (Bisa &gt; 1)</label>
+                  <div className="space-y-2">
+                    {formData.topics.map((topic, index) => (
+                      <div key={index} className="relative flex items-center gap-2">
+                        <Target className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                        <input 
+                          type="text" 
+                          placeholder={`Topik ${index + 1}`}
+                          className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-rose-500 transition-all text-sm outline-none"
+                          value={topic}
+                          onChange={(e) => {
+                            const newTopics = [...formData.topics];
+                            newTopics[index] = e.target.value;
+                            setFormData({...formData, topics: newTopics});
+                          }}
+                        />
+                        {index > 0 && (
+                          <button 
+                            onClick={() => {
+                              const newTopics = formData.topics.filter((_, i) => i !== index);
+                              setFormData({...formData, topics: newTopics});
+                            }}
+                            className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <button 
+                      onClick={() => setFormData({...formData, topics: [...formData.topics, '']})}
+                      className="text-xs text-rose-600 font-bold hover:underline ml-1"
+                    >
+                      + Tambah Materi Pokok
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1 ml-1">Fase/Kelas</label>
+                    <div className="relative">
+                      <GraduationCap className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                      <select 
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-rose-500 transition-all text-sm outline-none appearance-none"
+                        value={formData.phase}
+                        onChange={(e) => setFormData({...formData, phase: e.target.value})}
+                      >
+                        <option>Fase A - Kelas 1</option>
+                        <option>Fase A - Kelas 2</option>
+                        <option>Fase B - Kelas 3</option>
+                        <option>Fase B - Kelas 4</option>
+                        <option>Fase C - Kelas 5</option>
+                        <option>Fase C - Kelas 6</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1 ml-1">Alokasi Waktu</label>
+                    <div className="relative">
+                      <Calendar className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                      <select 
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-rose-500 transition-all text-sm outline-none appearance-none"
+                        value={formData.duration}
+                        onChange={(e) => setFormData({...formData, duration: e.target.value})}
+                      >
+                        <option value="60 Menit">60 Menit</option>
+                        <option value="90 Menit">90 Menit</option>
+                        <option value="120 Menit">120 Menit</option>
+                        <option value="2 x 35 Menit">2 x 35 Menit</option>
+                        <option value="3 x 35 Menit">3 x 35 Menit</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {formData.genMode === 'RPM' ? (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1 ml-1">Jumlah Pertemuan</label>
+                      <div className="relative">
+                        <Calendar className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                        <select 
+                          className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-rose-500 transition-all text-sm outline-none appearance-none"
+                          value={formData.sessions}
+                          onChange={(e) => setFormData({...formData, sessions: e.target.value})}
+                        >
+                          <option>1x pertemuan</option>
+                          <option>2x pertemuan</option>
+                          <option>3x pertemuan</option>
+                          <option>4x pertemuan</option>
+                          <option>5x pertemuan</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1 ml-1">Model Pembelajaran</label>
+                      <div className="flex gap-2 mb-2 p-1 bg-slate-50 rounded-2xl border border-slate-100">
+                        <button 
+                          onClick={() => setFormData({...formData, modelType: 'Auto'})}
+                          className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${formData.modelType === 'Auto' ? 'bg-rose-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}
+                        >
+                          Auto Generate
+                        </button>
+                        <button 
+                          onClick={() => setFormData({...formData, modelType: 'Manual'})}
+                          className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${formData.modelType === 'Manual' ? 'bg-rose-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}
+                        >
+                          Manual Select
+                        </button>
+                      </div>
+                      
+                      {formData.modelType === 'Manual' && (
+                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="relative">
+                          <Target className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                          <select 
+                            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-rose-500 transition-all text-sm outline-none appearance-none"
+                            value={formData.model}
+                            onChange={(e) => setFormData({...formData, model: e.target.value})}
+                          >
+                            <option>Discovery Learning</option>
+                            <option>Project Based Learning</option>
+                            <option>Problem Based Learning</option>
+                            <option>Inquiry Learning</option>
+                            <option>Cooperative Learning</option>
+                            <option>Contextual Teaching and Learning</option>
+                            <option>Differentiated Learning</option>
+                            <option>Game Based Learning</option>
+                            <option>Direct Instruction</option>
+                          </select>
+                        </motion.div>
+                      )}
+                    </div>
+                  </motion.div>
+                ) : (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1 ml-1">Jenis Asesmen</label>
+                      <div className="relative">
+                        <CheckCircle2 className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                        <select 
+                          className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-rose-500 transition-all text-sm outline-none appearance-none"
+                          value={formData.assessmentType}
+                          onChange={(e) => setFormData({...formData, assessmentType: e.target.value})}
+                        >
+                          <option>Asesmen Sumatif Harian</option>
+                          <option>Asesmen Sumatif Tengah Semester</option>
+                          <option>Asesmen Sumatif Akhir Semester</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                       <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1 ml-1">Mode Stimulus (Manual pilih &gt; 1)</label>
+                        <div className="space-y-2 p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                          <label className="flex items-center gap-2 text-xs font-bold text-slate-600">
+                            <input 
+                              type="checkbox"
+                              checked={formData.stimulusMode.includes('Auto')}
+                              onChange={(e) => {
+                                if (e.target.checked) setFormData({...formData, stimulusMode: ['Auto']});
+                                else setFormData({...formData, stimulusMode: []});
+                              }}
+                              className="accent-emerald-600"
+                            />
+                            Auto (AI Choice)
+                          </label>
+                          {!formData.stimulusMode.includes('Auto') && (
+                            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200">
+                              {['Teks/Artikel', 'Dialog/Percakapan', 'Audio Transkrip', 'Diagram/Tabel', 'Gambar/Ilustrasi', 'Pernyataan', ...(formData.subject === 'Bahasa Arab' ? ['Pelafalan'] : [])].map(mode => (
+                                <label key={mode} className="flex items-center gap-2 text-[10px] font-medium text-slate-500">
+                                  <input 
+                                    type="checkbox"
+                                    checked={formData.stimulusMode.includes(mode)}
+                                    onChange={(e) => {
+                                      const current = formData.stimulusMode.filter(m => m !== 'Auto');
+                                      if (e.target.checked) {
+                                        setFormData({...formData, stimulusMode: [...current, mode]});
+                                      } else {
+                                        setFormData({...formData, stimulusMode: current.filter(m => m !== mode)});
+                                      }
+                                    }}
+                                    className="accent-emerald-600"
+                                  />
+                                  {mode}
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                <button 
+                  onClick={generateRPP}
+                  disabled={loading}
+                  className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-4 rounded-3xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-rose-200 disabled:opacity-50 group mt-4"
+                >
+                  {loading ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <>
+                      <Send className="w-5 h-5 group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
+                      {formData.genMode === 'RPM' ? 'Generate RPM KBC' : 'Generate Kumpulan Soal'}
+                    </>
+                  )}
+                </button>
+
+                {error && (
+                  <div className="p-4 bg-red-50 text-red-600 rounded-2xl text-xs flex items-start gap-2 border border-red-100">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{error}</span>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+
+            {/* Visual Prompts Placeholder */}
+            <AnimatePresence>
+              {rpp && rpp.prompts && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-emerald-50 p-6 rounded-[2rem] border border-emerald-100"
+                >
+                  <div className="flex items-center gap-2 mb-4">
+                    <ImageIcon className="w-5 h-5 text-emerald-600" />
+                    <h3 className="font-bold text-emerald-900">AI Visual Prompts</h3>
+                  </div>
+                  <div className="space-y-3">
+                    {rpp.prompts.map((p: string, i: number) => (
+                      <div key={i} className="text-xs bg-white/60 p-3 rounded-xl border border-emerald-200 text-emerald-800 leading-relaxed italic">
+                        "{p}"
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Preview Side */}
+          <div className="lg:col-span-8">
+            <AnimatePresence mode="wait">
+              {rpp ?
+                <motion.div 
+                  key="content"
+                  initial={{ opacity: 0, y: 40 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  className="bg-white rounded-[2.5rem] border border-slate-100 shadow-2xl shadow-slate-200/50 overflow-hidden print:shadow-none print:border-none"
+                >
+                  {/* Action Bar */}
+                  <div className="bg-slate-50/80 backdrop-blur-md p-4 flex justify-between items-center px-8 border-b border-slate-100 sticky top-0 z-10 print:hidden">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">RPP Generated Preview</span>
+                    <div className="flex gap-2">
+                       <button 
+                        onClick={handlePrint}
+                        title="Print RPP"
+                        className="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors shadow-sm group"
+                      >
+                        <Printer className="w-5 h-5 text-slate-600 group-hover:text-rose-600" />
+                      </button>
+                      <button 
+                        onClick={handleDownloadPDF}
+                        title="Download PDF"
+                        className="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors shadow-sm group"
+                      >
+                        <Download className="w-5 h-5 text-rose-600" />
+                      </button>
+                      <button 
+                        onClick={handleDownloadWord}
+                        title="Download Word"
+                        className="p-2.5 bg-emerald-600 border border-emerald-500 rounded-xl hover:bg-emerald-700 transition-colors shadow-sm"
+                      >
+                        <BookOpen className="w-5 h-5 text-white" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* RPP Content */}
+                  <div ref={rppRef} className="p-8 md:p-12 space-y-8 rpp-document text-[12px] leading-relaxed font-serif text-black overflow-x-auto">
+                    {rpp.bankSoal ?
+                      <div className="space-y-12">
+                         {/* QUIZ HEADER */}
+                         <div className="text-center space-y-2 mb-10 border-b-2 border-black pb-4">
+                            <h2 className="text-lg font-bold uppercase underline">KUMPULAN SOAL {rpp.header?.judul || ""}</h2>
+                            <div className="grid grid-cols-2 text-left text-[11px] gap-x-8 gap-y-1">
+                               <p><span className="font-bold">Madrasah :</span> {rpp.header?.sekolah || "-"}</p>
+                               <p><span className="font-bold">Kelas :</span> {rpp.header?.kelas || "-"}</p>
+                               <p><span className="font-bold">Mata Pelajaran :</span> {rpp.header?.mapel || "-"}</p>
+                               <p><span className="font-bold">Waktu :</span> {rpp.header?.waktu || "-"}</p>
+                               <p><span className="font-bold">Materi :</span> {rpp.header?.materi || "-"}</p>
+                               <p><span className="font-bold">Guru :</span> {formData.teacherName}</p>
+                            </div>
+                         </div>
+
+                         {/* KISI-KISI SECTION */}
+                         {Array.isArray(rpp?.kisiKisi) && rpp.kisiKisi.length > 0 && (
+                            <div className="space-y-6 break-after-page mb-10">
+                              <h3 className="text-center font-bold text-base uppercase underline">KISI-KISI INSTRUMEN ASESMEN</h3>
+                              <table className="w-full border-collapse border border-black text-[10px]">
+                                <thead>
+                                  <tr className="bg-gray-100">
+                                    <th className="border border-black p-1 w-8">No</th>
+                                    <th className="border border-black p-1">Materi</th>
+                                    <th className="border border-black p-1">Indikator Soal</th>
+                                    <th className="border border-black p-1 w-16">Level</th>
+                                    <th className="border border-black p-1 w-20">Bentuk Soal</th>
+                                    <th className="border border-black p-1 w-12">No. Soal</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {rpp.kisiKisi.map((k: any, index: number) => (
+                                    <tr key={index}>
+                                      <td className="border border-black p-1 text-center">{k.no}</td>
+                                      <td className="border border-black p-1">{k.materi}</td>
+                                      <td className="border border-black p-1">{k.indikatorSoal}</td>
+                                      <td className="border border-black p-1 text-center">{k.level}</td>
+                                      <td className="border border-black p-1 text-center">{k.bentukSoal}</td>
+                                      <td className="border border-black p-1 text-center">{k.nomorSoal}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                         )}
+
+                         {/* QUESTIONS LIST */}
+                         <div className="space-y-8">
+                            {/* SECTION PG */}
+                            <div className="space-y-4">
+                               <h3 className="font-bold border-b border-black inline-block">I. PILIHAN GANDA</h3>
+                               <div className="space-y-6">
+                                  {rpp.bankSoal.filter((s:any) => s.tipe === "PG").map((s:any, i:number) => (
+                                     <div key={i} className="space-y-2 pl-4 relative">
+                                        <span className="absolute left-0 top-0 font-bold">{i+1}.</span>
+                                        {s.stimulus && (
+                                           <div className="bg-gray-50 p-3 border border-gray-200 mb-2 italic space-y-3">
+                                              {s.stimulus.tipe === "Gambar/Ilustrasi" ? (
+                                                <div className="flex flex-col items-center gap-2">
+                                                  <img 
+                                                    src={`https://image.pollinations.ai/prompt/${encodeURIComponent(s.stimulus.konten)}?width=300&height=200&seed=${i}&model=flux&nologo=true`}
+                                                    alt={s.stimulus.konten}
+                                                    className="max-w-[300px] w-full h-auto rounded-lg shadow-md border border-slate-300"
+                                                    referrerPolicy="no-referrer"
+                                                    loading="lazy"
+                                                  />
+                                                  <span className="text-[10px] text-slate-500 not-italic">Gambar: {s.stimulus.konten}</span>
+                                                </div>
+                                              ) : (
+                                                s.stimulus.konten
+                                              )}
+                                           </div>
+                                        )}
+                                        <p className="font-medium">{s.pertanyaan} <span className="text-[10px] text-gray-400">({s.level})</span></p>
+                                        <div className="grid grid-cols-2 gap-x-4 pl-4">
+                                           {s.opsi.map((o:string, j:number) => (
+                                              <div key={j} className="flex gap-2">
+                                                 <span className="font-bold">{String.fromCharCode(97 + j)}.</span>
+                                                 <span>{stripLabel(o)}</span>
+                                              </div>
+                                           ))}
+                                        </div>
+                                     </div>
+                                  ))}
+                               </div>
+                            </div>
+
+                            {/* SECTION PGK */}
+                            {rpp.bankSoal.some((s:any) => s.tipe === "PGK") && (
+                               <div className="space-y-4">
+                                  <h3 className="font-bold border-b border-black inline-block">II. PILIHAN GANDA KOMPLEKS</h3>
+                                  <p className="text-[10px] italic">(Pilihlah lebih dari satu jawaban yang benar)</p>
+                                  <div className="space-y-6">
+                                     {rpp.bankSoal.filter((s:any) => s.tipe === "PGK").map((s:any, i:number) => (
+                                        <div key={i} className="space-y-2 pl-4 relative">
+                                           <span className="absolute left-0 top-0 font-bold">{i+1}.</span>
+                                           {s.stimulus && (
+                                              <div className="bg-gray-50 p-3 border border-gray-200 mb-2 italic space-y-3">
+                                                 {s.stimulus.tipe === "Gambar/Ilustrasi" ? (
+                                                   <div className="flex flex-col items-center gap-2">
+                                                     <img 
+                                                       src={`https://image.pollinations.ai/prompt/${encodeURIComponent(s.stimulus.konten)}?width=300&height=200&seed=${i + 100}&model=flux&nologo=true`}
+                                                       alt={s.stimulus.konten}
+                                                       className="max-w-[300px] w-full h-auto rounded-lg shadow-md border border-slate-300"
+                                                       referrerPolicy="no-referrer"
+                                                       loading="lazy"
+                                                     />
+                                                     <span className="text-[10px] text-slate-500 not-italic">Gambar: {s.stimulus.konten}</span>
+                                                   </div>
+                                                 ) : (
+                                                   s.stimulus.konten
+                                                 )}
+                                              </div>
+                                           )}
+                                           <p>{s.pertanyaan}</p>
+                                           <div className="grid grid-cols-2 gap-x-4 pl-4">
+                                              {s.opsi.map((o:string, j:number) => (
+                                                 <div key={j} className="flex gap-2 items-center">
+                                                    <span className="w-3 h-3 border border-black"></span>
+                                                    <span>{stripLabel(o)}</span>
+                                                 </div>
+                                              ))}
+                                           </div>
+                                        </div>
+                                     ))}
+                                  </div>
+                               </div>
+                            )}
+
+                            {/* SECTION ISIAN */}
+                            <div className="space-y-4">
+                               <h3 className="font-bold border-b border-black inline-block">III. ISIAN SINGKAT</h3>
+                               <div className="space-y-4">
+                                  {rpp.bankSoal.filter((s:any) => s.tipe === "Isian").map((s:any, i:number) => (
+                                     <div key={i} className="pl-4 relative flex flex-col gap-2">
+                                        <div className="flex items-baseline gap-2">
+                                          <span className="font-bold">{i+1}.</span>
+                                          <div className="flex-1 space-y-2">
+                                             {s.stimulus && (
+                                               <div className="bg-gray-50 p-3 border border-gray-200 mb-2 italic space-y-3">
+                                                 {s.stimulus.tipe === "Gambar/Ilustrasi" ? (
+                                                   <div className="flex flex-col items-center gap-2">
+                                                     <img 
+                                                       src={`https://image.pollinations.ai/prompt/${encodeURIComponent(s.stimulus.konten)}?width=300&height=200&seed=${i + 200}&model=flux&nologo=true`}
+                                                       alt={s.stimulus.konten}
+                                                       className="max-w-[300px] w-full h-auto rounded-lg shadow-md border border-slate-300"
+                                                       referrerPolicy="no-referrer"
+                                                       loading="lazy"
+                                                     />
+                                                     <span className="text-[10px] text-slate-500 not-italic">Gambar: {s.stimulus.konten}</span>
+                                                   </div>
+                                                 ) : (
+                                                   s.stimulus.konten
+                                                 )}
+                                               </div>
+                                             )}
+                                             <p className="border-b border-dotted border-black pb-1">{s.pertanyaan}</p>
+                                          </div>
+                                        </div>
+                                     </div>
+                                  ))}
+                               </div>
+                            </div>
+
+                            {/* SECTION ESSAY */}
+                            {rpp.bankSoal.some((s:any) => s.tipe === "Essay") && (
+                               <div className="space-y-4">
+                                  <h3 className="font-bold border-b border-black inline-block">IV. URAIAN / ESSAY</h3>
+                                  <div className="space-y-8">
+                                     {rpp.bankSoal.filter((s:any) => s.tipe === "Essay").map((s:any, i:number) => (
+                                        <div key={i} className="space-y-2 pl-4 relative">
+                                           <span className="absolute left-0 top-0 font-bold">{i+1}.</span>
+                                           {s.stimulus && (
+                                              <div className="bg-gray-50 p-3 border border-gray-200 mb-2 italic space-y-3">
+                                                 {s.stimulus.tipe === "Gambar/Ilustrasi" ? (
+                                                   <div className="flex flex-col items-center gap-2">
+                                                     <img 
+                                                       src={`https://image.pollinations.ai/prompt/${encodeURIComponent(s.stimulus.konten)}?width=300&height=200&seed=${i + 300}&model=flux&nologo=true`}
+                                                       alt={s.stimulus.konten}
+                                                       className="max-w-[300px] w-full h-auto rounded-lg shadow-md border border-slate-300"
+                                                       referrerPolicy="no-referrer"
+                                                       loading="lazy"
+                                                     />
+                                                     <span className="text-[10px] text-slate-500 not-italic">Gambar: {s.stimulus.konten}</span>
+                                                   </div>
+                                                 ) : (
+                                                   s.stimulus.konten
+                                                 )}
+                                              </div>
+                                           )}
+                                           <p className="font-medium">{s.pertanyaan}</p>
+                                           <div className="h-20 w-full border-b border-black opacity-30"></div>
+                                        </div>
+                                     ))}
+                                  </div>
+                               </div>
+                            )}
+                         </div>
+
+                         {/* ANSWER KEY SECTION (BREAK BEFORE PAGE) */}
+                         <div className="mt-20 pt-10 border-t-4 border-black border-double break-before-page">
+                            <h2 className="text-center font-bold text-lg mb-6">KUNCI JAWABAN & PEDOMAN PENSKORAN</h2>
+                            <div className="grid grid-cols-2 gap-10">
+                               <div className="space-y-4">
+                                  <h4 className="font-bold">I. Kunci Pilihan Ganda</h4>
+                                  <div className="grid grid-cols-5 gap-2 text-[10px]">
+                                     {rpp.bankSoal.filter((s:any) => s.tipe === "PG").map((s:any, i:number) => (
+                                        <p key={i}>{i+1}. <span className="font-bold">{s.kunci}</span></p>
+                                     ))}
+                                  </div>
+                               </div>
+                               <div className="space-y-4">
+                                  <h4 className="font-bold">II. Kunci Isian & Essay</h4>
+                                  <div className="space-y-2 text-[10px]">
+                                     {rpp.bankSoal.filter((s:any) => s.tipe !== "PG" && s.tipe !== "PGK").map((s:any, i:number) => (
+                                        <p key={i}><span className="font-bold">{i+1}.</span> {Array.isArray(s.kunci) ? s.kunci.join(', ') : s.kunci}</p>
+                                     ))}
+                                  </div>
+                               </div>
+                            </div>
+                         </div>
+                         
+                         {/* Signature Area */}
+                         <div className="flex justify-between pt-20 text-center font-bold">
+                            <div className="space-y-24">
+                                <p>Mengetahui,<br/>Kepala Madrasah</p>
+                                <div className="space-y-1">
+                                  <p className="underline">{formData.principalName}</p>
+                                  <p className="text-[10px]">NIP. {formData.principalNip}</p>
+                                </div>
+                            </div>
+                            <div className="space-y-24">
+                                <p>Padang, {new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}<br/>Guru {formData.subject}</p>
+                                <div className="space-y-1">
+                                  <p className="underline">{formData.teacherName}</p>
+                                  <p className="text-[10px]">NIP. {formData.teacherNip}</p>
+                                </div>
+                            </div>
+                         </div>
+                      </div>
+                    :
+                      <div className="space-y-12">
+                        <div className="text-center space-y-1 mb-8">
+                          <h2 className="text-lg font-bold">RENCANA PELAKSANAAN PEMBELAJARAN MENDALAM DAN KBC</h2>
+                        </div>
+                        {/* Identitas Section */}
+                        <div className="space-y-1 mb-6">
+                      <table className="w-full">
+                        <tbody>
+                          <tr><td className="w-40 font-bold">Nama Sekolah</td><td className="w-4">:</td><td>{rpp.identitas?.sekolah || "-"}</td></tr>
+                          <tr><td className="font-bold">Nama Guru</td><td>:</td><td>{rpp.identitas?.guru || "-"}</td></tr>
+                          <tr><td className="font-bold">Mapel</td><td>:</td><td>{rpp.identitas?.mapel || "-"}</td></tr>
+                          <tr><td className="font-bold">Fase/Kelas/Smt</td><td>:</td><td>{rpp.identitas?.fase || "-"}</td></tr>
+                          <tr><td className="font-bold">Materi</td><td>:</td><td>{rpp.identitas?.materi || "-"}</td></tr>
+                          <tr><td className="font-bold">Alokasi Waktu</td><td>:</td><td>{rpp.identitas?.alokasi || "-"}</td></tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* A. IDENTIFIKASI Table */}
+                    <section className="space-y-2">
+                       <div className="w-full bg-slate-50 border border-black p-1 text-center font-bold">A. IDENTIFIKASI</div>
+                       <table className="w-full border-collapse border border-black">
+                         <tbody>
+                            <tr className="border border-black">
+                               <td className="w-1/3 p-2 font-bold border-r border-black align-top">1. Murid</td>
+                               <td className="p-2 space-y-1">
+                                  <p><span className="font-bold">• Kesiapan Belajar:</span> {rpp.identifikasi?.murid?.kesiapan || "-"}</p>
+                                  <p><span className="font-bold">• Pengetahuan Awal:</span> {rpp.identifikasi?.murid?.awal || "-"}</p>
+                                  <p><span className="font-bold">• Minat Belajar:</span> {rpp.identifikasi?.murid?.minat || "-"}</p>
+                                  <p><span className="font-bold">• Latar Belakang:</span> {rpp.identifikasi?.murid?.latar || "-"}</p>
+                               </td>
+                            </tr>
+                            <tr className="border border-black">
+                               <td className="p-2 font-bold border-r border-black align-top">2. Materi Pelajaran</td>
+                               <td className="p-2 space-y-1">
+                                  <p><span className="font-bold">• Pengetahuan Faktual:</span> {rpp.identifikasi?.materiPelajaran?.faktual || "-"}</p>
+                                  <p><span className="font-bold">• Pengetahuan Konseptual:</span> {rpp.identifikasi?.materiPelajaran?.konseptual || "-"}</p>
+                                  <p><span className="font-bold">• Pengetahuan Prosedural:</span> {rpp.identifikasi?.materiPelajaran?.prosedural || "-"}</p>
+                                  <p><span className="font-bold">• Pengetahuan Metakognitif:</span> {rpp.identifikasi?.materiPelajaran?.metakognitif || "-"}</p>
+                               </td>
+                            </tr>
+                            <tr className="border border-black">
+                               <td className="p-2 font-bold border-r border-black align-top">3. Dimensi Profil Lulusan</td>
+                               <td className="p-2 space-y-1">
+                                  <div className="flex gap-4">
+                                    <div className="flex items-center gap-1">
+                                       <span className="w-4 h-4 border border-black flex items-center justify-center text-[10px]">{rpp.identifikasi?.profilLulusan?.dpl3 ? '☑' : '☐'}</span>
+                                       <span>DPL3 Penalaran Kritis</span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                       <span className="w-4 h-4 border border-black flex items-center justify-center text-[10px]">{rpp.identifikasi?.profilLulusan?.dpl5 ? '☑' : '☐'}</span>
+                                       <span>DPL5 Kolaborasi</span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                       <span className="w-4 h-4 border border-black flex items-center justify-center text-[10px]">{rpp.identifikasi?.profilLulusan?.dpl8 ? '☑' : '☐'}</span>
+                                       <span>DPL8 Komunikasi</span>
+                                    </div>
+                                  </div>
+                               </td>
+                            </tr>
+                            <tr className="border border-black">
+                               <td className="p-2 font-bold border-r border-black align-top">4. Tema Kurikulum Berbasis Cinta (KBC)</td>
+                               <td className="p-2 grid grid-cols-2 gap-2">
+                                  {rpp.kbc?.tema && Object.entries(rpp.kbc.tema).map(([key, val]) => (
+                                    <div key={key} className="flex items-center gap-1">
+                                       <span className="w-4 h-4 border border-black flex items-center justify-center text-[10px]">{val ? '☑' : '☐'}</span>
+                                       <span className="capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</span>
+                                    </div>
+                                  ))}
+                               </td>
+                            </tr>
+                            <tr className="border border-black">
+                               <td className="p-2 font-bold border-r border-black align-top">5. Materi Integrasi KBC</td>
+                               <td className="p-2 space-y-1">
+                                  {Array.isArray(rpp.kbc?.materiIntegrasi) && rpp.kbc.materiIntegrasi.map((m: string, i: number) => (
+                                    <p key={i}>• {m}</p>
+                                  ))}
+                               </td>
+                            </tr>
+                         </tbody>
+                       </table>
+                    </section>
+
+                    {/* B. DESAIN PEMBELAJARAN Table */}
+                    <section className="space-y-2 mt-8">
+                       <div className="w-full bg-slate-50 border border-black p-1 text-center font-bold">B. DESAIN PEMBELAJARAN</div>
+                       <table className="w-full border-collapse border border-black">
+                          <tbody>
+                             {rpp.desain && Object.entries({
+                               "1. Capaian Pembelajaran (CP)": rpp.desain.cp,
+                               "2. Lintas Disiplin Ilmu": rpp.desain.lintasDisiplin,
+                               "3. Tujuan Pembelajaran (TP)": rpp.desain.tp,
+                               "4. Indikator Ketercapaian (IKTP)": rpp.desain.iktp,
+                               "5. Praktik Pedagogis": rpp.desain.praktikPedagogis,
+                               "6. Kemitraan Pembelajaran": rpp.desain.kemitraan,
+                               "7. Lingkungan Pembelajaran": rpp.desain.lingkungan,
+                               "8. Pemanfaatan Digital": rpp.desain.digital
+                             }).map(([label, content], idx) => (
+                               <tr key={idx} className="border border-black">
+                                  <td className="w-1/3 p-2 font-bold border-r border-black align-top">{label}</td>
+                                  <td className="p-2 space-y-1">
+                                     {(Array.isArray(content) ? content : [content]).map((item, i) => (
+                                       <p key={i}>• {item}</p>
+                                     ))}
+                                  </td>
+                               </tr>
+                             ))}
+                          </tbody>
+                       </table>
+                    </section>
+
+                    {/* C. PENGALAMAN BELAJAR Section */}
+                    <section className="space-y-2 mt-8">
+                       <div className="w-full bg-slate-50 border border-black p-1 text-center font-bold">C. PENGALAMAN BELAJAR</div>
+                       <div className="border border-black">
+                          <div className="p-4 space-y-8">
+                             {Array.isArray(rpp.langkah) && rpp.langkah.map((l: any, i: number) => (
+                               <div key={i} className="space-y-4">
+                                  <div className="font-bold underline uppercase">PERTEMUAN {l.pertemuan}</div>
+                                  
+                                  <div className="space-y-2">
+                                     <div className="font-bold">a. Kegiatan Awal:</div>
+                                     <div className="pl-4 space-y-1">
+                                        <p>• {l.awal?.deskripsi} <span className="italic font-bold">{l.awal?.prinsip}</span></p>
+                                     </div>
+                                  </div>
+
+                                  <div className="space-y-2">
+                                     <div className="font-bold">b. Kegiatan Inti:</div>
+                                     <div className="pl-4 space-y-3">
+                                        <div className="italic font-bold">Sintak {l.inti?.sintak}:</div>
+                                        {Array.isArray(l.inti?.steps) && l.inti.steps.map((st: any, si: number) => (
+                                          <div key={si} className="space-y-1">
+                                             <div className="font-bold">{si+1}. {st.title}</div>
+                                             {Array.isArray(st?.activity) && st.activity.map((act: string, ai: number) => (
+                                               <p key={ai} className="pl-4">• {act} {st.prinsip && ai === 0 && <span className="italic font-bold">{st.prinsip}</span>}</p>
+                                             ))}
+                                          </div>
+                                        ))}
+                                     </div>
+                                  </div>
+
+                                  <div className="space-y-2">
+                                     <div className="font-bold">c. Kegiatan Penutup:</div>
+                                     <div className="pl-4 space-y-1">
+                                        <p>• {l.penutup?.deskripsi} <span className="italic font-bold">{l.penutup?.prinsip}</span></p>
+                                     </div>
+                                  </div>
+                               </div>
+                             ))}
+                          </div>
+                       </div>
+                    </section>
+
+                    {/* ASSESSMENT Section */}
+                    <section className="space-y-4 mt-8 break-before-page">
+                       <div className="w-full bg-slate-50 border border-black p-1 text-center font-bold">ASSESSMENT (PENILAIAN)</div>
+                       
+                       <div className="space-y-6">
+                          <div>
+                             <div className="font-bold underline">A. Assessment Awal</div>
+                             <p className="mt-1">{rpp.asesmen?.awal || "-"}</p>
+                          </div>
+
+                          <div>
+                             <div className="font-bold underline">B. Assessment Proses</div>
+                             <div className="mt-4 space-y-8">
+                                {Array.isArray(rpp?.asesmen?.proses) ? (
+                                  rpp.asesmen.proses.map((p: any, pi: number) => (
+                                    <div key={pi} className="space-y-4">
+                                      <div className="font-bold italic">{pi + 1}. {p.subjudul || 'Observasi Partisipasi'}</div>
+                                      <table className="w-full border-collapse border border-black">
+                                        <thead>
+                                          <tr className="bg-slate-50 border border-black">
+                                            <th className="p-2 border border-black text-left">Aspek</th>
+                                            <th className="p-2 border border-black text-left">Skor 3 (Maksimal)</th>
+                                            <th className="p-2 border border-black text-left">Skor 2 (Sedang)</th>
+                                            <th className="p-2 border border-black text-left">Skor 1 (Perlu Bimbingan)</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {Array.isArray(p?.rubrik) && p.rubrik.map((r: any, i: number) => (
+                                            <tr key={i} className="border border-black">
+                                              <td className="p-2 border border-black font-bold">{r.aspek}</td>
+                                              <td className="p-2 border border-black">{r.skor3}</td>
+                                              <td className="p-2 border border-black">{r.skor2}</td>
+                                              <td className="p-2 border border-black">{r.skor1}</td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <div className="space-y-4">
+                                    <div className="font-bold italic">1. Observasi Partisipasi (Rubrik)</div>
+                                    <table className="w-full border-collapse border border-black">
+                                      <thead>
+                                        <tr className="bg-slate-50 border border-black">
+                                          <th className="p-2 border border-black text-left">Aspek</th>
+                                          <th className="p-2 border border-black text-left">Skor 3 (Maksimal)</th>
+                                          <th className="p-2 border border-black text-left">Skor 2 (Sedang)</th>
+                                          <th className="p-2 border border-black text-left">Skor 1 (Perlu Bimbingan)</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {Array.isArray(rpp.asesmen?.proses?.rubrik) && rpp.asesmen.proses.rubrik.map((r: any, i: number) => (
+                                          <tr key={i} className="border border-black">
+                                            <td className="p-2 border border-black font-bold">{r.aspek}</td>
+                                            <td className="p-2 border border-black">{r.skor3}</td>
+                                            <td className="p-2 border border-black">{r.skor2}</td>
+                                            <td className="p-2 border border-black">{r.skor1}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                )}
+                             </div>
+                          </div>
+
+                          <div>
+                             <div className="font-bold underline">C. Assessment Akhir</div>
+                             <div className="mt-4 space-y-6">
+                                <div className="space-y-4">
+                                   <div className="font-bold italic">1. Soal Tes Tertulis</div>
+                                   <div className="pl-4 space-y-4">
+                                      {Array.isArray(rpp?.asesmen?.akhir?.soalPG) && rpp.asesmen.akhir.soalPG.map((s: any, i: number) => (
+                                         <div key={i} className="space-y-1">
+                                            <p className="font-bold">{i+1}. {s.soal}</p>
+                                            <div className="pl-4 flex flex-col gap-1">
+                                               {Array.isArray(s.opsi) && s.opsi.map((o: string, j: number) => (
+                                                 <div key={j} className="flex gap-2">
+                                                    <span>{String.fromCharCode(97 + j)}.</span>
+                                                    <span>{stripLabel(o)}</span>
+                                                 </div>
+                                               ))}
+                                            </div>
+                                         </div>
+                                      ))}
+                                   </div>
+                                   {rpp.asesmen.akhir?.teksBaca && (
+                                     <div className="mt-4 pl-4 border-l-2 border-slate-200">
+                                        <p className="font-bold underline italic text-center mb-2">{rpp.asesmen.akhir.teksBaca.judul}</p>
+                                        <p className="indent-8 leading-relaxed mb-4">{rpp.asesmen.akhir.teksBaca.konten}</p>
+                                        <div className="space-y-3">
+                                           {Array.isArray(rpp.asesmen.akhir.teksBaca.soal) && rpp.asesmen.akhir.teksBaca.soal.map((qs: any, i: number) => (
+                                             <div key={i}>
+                                                <p className="font-bold">{i+4}. {qs.q}</p>
+                                                <div className="w-1/2 border-b border-black h-4 mt-1"></div>
+                                             </div>
+                                           ))}
+                                        </div>
+                                     </div>
+                                   )}
+                                </div>
+
+                                <div className="space-y-4">
+                                   <div className="font-bold italic">2. Rubrik Penilaian Produk & Presentasi</div>
+                                   <table className="w-full border-collapse border border-black">
+                                      <thead>
+                                         <tr className="bg-slate-50 border border-black">
+                                            <th className="p-2 border border-black text-left">Kriteria</th>
+                                            <th className="p-2 border border-black text-left">Skor 4 (Berkembang Biasa)</th>
+                                            <th className="p-2 border border-black text-left">Skor 3 (Membudaya)</th>
+                                            <th className="p-2 border border-black text-left">Skor 2 (Berkembang)</th>
+                                         </tr>
+                                      </thead>
+                                      <tbody>
+                                         {Array.isArray(rpp.asesmen.akhir?.rubrikProduk) && rpp.asesmen.akhir.rubrikProduk.map((r: any, i: number) => (
+                                            <tr key={i} className="border border-black">
+                                               <td className="p-2 border border-black font-bold">{r.kriteria}</td>
+                                               <td className="p-2 border border-black">{r.skor4}</td>
+                                               <td className="p-2 border border-black">{r.skor3}</td>
+                                               <td className="p-2 border border-black">{r.skor2}</td>
+                                            </tr>
+                                         ))}
+                                      </tbody>
+                                   </table>
+                                </div>
+                             </div>
+                          </div>
+                       </div>
+                    </section>
+
+                    {/* Footer / Signature Area */}
+                    <div className="flex justify-between pt-20 text-center font-bold">
+                       <div className="space-y-24">
+                          <p>Mengetahui,<br/>Kepala Madrasah</p>
+                          <div className="space-y-1">
+                             <p className="underline">{rpp.identitas?.kepalaMadrasah || formData.principalName}</p>
+                             <p className="text-[10px]">NIP. {rpp.identitas?.nipKepala || formData.principalNip}</p>
+                          </div>
+                       </div>
+                       <div className="space-y-24">
+                          <p>Padang, {new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}<br/>Guru {formData.subject}</p>
+                          <div className="space-y-1">
+                             <p className="underline">{rpp.identitas?.guru || formData.teacherName}</p>
+                             <p className="text-[10px]">NIP. {rpp.identitas?.nipGuru || formData.teacherNip}</p>
+                          </div>
+                       </div>
+                    </div>
+                  </div>
+                }
+              </div>
+            </motion.div>
+            : 
+                <motion.div 
+                  key="empty"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="h-full min-h-[600px] bg-white rounded-[2.5rem] border border-dashed border-slate-200 flex flex-col items-center justify-center text-center p-12"
+                >
+                  <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-6">
+                    <BookOpen className="w-10 h-10 text-slate-300" />
+                  </div>
+                  <h3 className="text-2xl font-bold text-slate-800">Siap Membuat RPP?</h3>
+                  <p className="text-slate-500 mt-2 max-w-sm">
+                    Isi formulir di sebelah kiri dan biarkan AI merancang RPP Kurikulum Merdeka yang terintegrasi nilai KBC untuk Anda.
+                  </p>
+                </motion.div>
+              }
+            </AnimatePresence>
+          </div>
+        </div>
+      </div>
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          body { background: white !important; padding: 0 !important; }
+          .max-w-5xl { max-width: 100% !important; margin: 0 !important; }
+          .lg\\:grid-cols-12 { display: block !important; }
+          .lg\\:col-span-4, .lg\\:col-span-8 { width: 100% !important; display: block !important; }
+          .print\\:hidden { display: none !important; }
+          .rpp-document { box-shadow: none !important; border: none !important; padding: 0 !important; }
+        }
+      `}} />
+    </div>
+  );
+}

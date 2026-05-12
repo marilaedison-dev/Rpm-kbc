@@ -1,0 +1,10 @@
+{
+  "name": "AI RPM KBC Generator",
+  "description": "Generator RPM Kurikulum Merdeka Terintegrasi KBC untuk MIN 4 Kota Padang.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "AI-powered lesson planning",
+    "KBC values integration",
+    "Image prompt generation"
+  ]
+}
